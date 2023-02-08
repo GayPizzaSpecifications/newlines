@@ -5,6 +5,8 @@ import 'dart:io';
 
 import 'package:pool/pool.dart';
 
+final int defaultMaxParallel = 32;
+
 class NewlineCheckReport {
   final List<String> okay;
   final List<String> needed;
@@ -71,17 +73,17 @@ class NewlinesUpdater {
     }
   }
 
-  Future<List<String>> listAllPaths() async {
-    final result = await Process.run("git", [
+  Stream<String> listAllPaths() async* {
+    final process = await Process.start("git", [
       "ls-files"
     ], workingDirectory: directory.absolute.path);
 
-    final code = result.exitCode;
-    if (result.exitCode != 0) {
+    yield* process.stdout.transform(const Utf8Decoder()).transform(const LineSplitter());
+
+    final code = await process.exitCode;
+    if (code != 0) {
       throw "Failed to list files (exit code ${code})";
     }
-
-    return LineSplitter.split(result.stdout.toString()).where((e) => e.isNotEmpty).toList();
   }
 
   Future<bool> isPathText(String path) async {
@@ -99,11 +101,15 @@ class NewlinesUpdater {
     var okay = <String>[];
     var needed = <String>[];
 
-    final pool = Pool(50);
-    var idCount = 1;
-    final all = await listAllPaths();
-    for (final path in all) {
-      final id = idCount;
+    var parallel = defaultMaxParallel;
+    final newlinesMaxParallelString = Platform.environment["NEWLINES_MAX_PARALLEL"];
+
+    if (newlinesMaxParallelString != null) {
+      parallel = int.parse(newlinesMaxParallelString);
+    }
+
+    final pool = Pool(parallel);
+    await for (final path in await listAllPaths()) {
       pool.withResource(() async {
         if (!await isPathText(path)) {
           okay.add(path);
@@ -118,7 +124,6 @@ class NewlinesUpdater {
           okay.add(path);
         }
       });
-      idCount++;
     }
     await pool.close();
     return NewlineCheckReport(okay, needed);
@@ -159,4 +164,6 @@ class NewlinesUpdater {
     }
     return result.stdout.toString().trim();
   }
+
+  File file(String path) => File("${directory.absolute.path}/$path");
 }
