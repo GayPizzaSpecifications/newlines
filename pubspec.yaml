@@ -1,0 +1,7 @@
+name: newlines
+version: '0.0.1'
+dependencies:
+  github: '^9.9.0'
+  pool: ^1.5.1
+environment:
+  sdk: '^2.12.0'
